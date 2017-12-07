@@ -137,7 +137,12 @@ def main():
         input=feature_out,
         label=target,
         param_attr=paddle.attr.Param(name='crfw'))
-    evaluator.sum(input=crf_dec)
+    #evaluator.sum(input=crf_dec)
+    evaluator.chunk(
+       input=crf_dec,
+        label=target,
+        chunk_scheme="IOB",
+        num_chunk_types=int(math.ceil((label_dict_len - 1) / 2.0)))
 
     # create parameters
     parameters = paddle.parameters.create(crf_cost)
@@ -178,25 +183,18 @@ def main():
     def event_handler(event):
         if isinstance(event, paddle.event.EndIteration):
             if event.batch_id % 100 == 0:
-                print "Pass %d, Batch %d, Cost %f, %s" % (
-                    event.pass_id, event.batch_id, event.cost, event.metrics)
-            if event.batch_id % 1000 == 0:
-                result = trainer.test(reader=test_reader, feeding=feeding)
-                print "\nTest with Pass %d, Batch %d, %s" % (
-                    event.pass_id, event.batch_id, result.metrics)
-
-        if isinstance(event, paddle.event.EndPass):
-            # save parameters
-            with open('params_pass_%d.tar' % event.pass_id, 'w') as f:
-                trainer.save_parameter_to_tar(f)
-
-            result = trainer.test(reader=test_reader, feeding=feeding)
-            print "\nTest with Pass %d, %s" % (event.pass_id, result.metrics)
+                if isinstance(event.metrics, dict):
+                    data = event.metrics.values()
+                    print "Pass %d, Batch %d, Cost %f, %s" % (
+                        event.pass_id, event.batch_id, event.cost, str(data))
+                else:
+                    print "Pass %d, Batch %d, Cost %f, %s" % (
+                        event.pass_id, event.batch_id, event.cost, event.metrics)
 
     trainer.train(
         reader=reader,
         event_handler=event_handler,
-        num_passes=1,
+        num_passes=10,
         feeding=feeding)
 
     test_creator = paddle.dataset.conll05.test()
