@@ -20,7 +20,7 @@ from PIL import Image
 import numpy
 import paddle
 import paddle.fluid as fluid
-
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser("mnist")
@@ -28,6 +28,11 @@ def parse_args():
         '--enable_ce',
         action='store_true',
         help="If set, run the task with continuous evaluation logs.")
+    parser.add_argument(
+        '--with_pe',
+        type=bool,
+        default=False,
+        help="")
     parser.add_argument(
         '--use_gpu',
         type=bool,
@@ -134,6 +139,11 @@ def train(nn_type,
 
     place = fluid.CUDAPlace(0) if use_cuda else fluid.CPUPlace()
 
+    if args.with_pe:
+        train_exe = fluid.ParallelExecutor(use_cuda=args.use_gpu,
+                                       main_program=main_program,
+                                                 loss_name=avg_loss.name)
+
     exe = fluid.Executor(place)
 
     feeder = fluid.DataFeeder(feed_list=[img, label], place=place)
@@ -144,13 +154,20 @@ def train(nn_type,
     step = 0
     for epoch_id in epochs:
         for step_id, data in enumerate(train_reader()):
-            metrics = exe.run(
-                main_program,
-                feed=feeder.feed(data),
-                fetch_list=[avg_loss, acc])
+            s= time.time()
+            if args.with_pe:
+                metrics = train_exe.run(
+                    feed=feeder.feed(data),
+                    fetch_list=[avg_loss, acc])
+            else:
+                metrics = exe.run(
+                    main_program,
+                    feed=feeder.feed(data),
+                    fetch_list=[avg_loss, acc])
+            e = time.time()
             if step % 100 == 0:
-                print("Pass %d, Batch %d, Cost %f" % (step, epoch_id,
-                                                      metrics[0]))
+                print("Pass %d, Batch %d, Cost %f, time: %f" % (step, epoch_id,
+                                                      metrics[0], e - s))
             step += 1
         # test for epoch
         avg_loss_val, acc_val = train_test(

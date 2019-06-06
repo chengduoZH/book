@@ -19,7 +19,7 @@ import argparse
 
 import math
 import numpy
-
+import time
 import paddle
 import paddle.fluid as fluid
 
@@ -35,6 +35,11 @@ def parse_args():
         type=bool,
         default=False,
         help="Whether to use GPU or not.")
+    parser.add_argument(
+        '--with_pe',
+        type=bool,
+        default=False,
+        help="")
     parser.add_argument(
         '--num_epochs', type=int, default=100, help="number of epochs.")
     args = parser.parse_args()
@@ -110,6 +115,10 @@ def main():
     use_cuda = args.use_gpu
     place = fluid.CUDAPlace(0) if use_cuda else fluid.CPUPlace()
     exe = fluid.Executor(place)
+    if args.with_pe:
+        train_exe = fluid.ParallelExecutor(use_cuda=args.use_gpu,
+                                       main_program=main_program,
+                                                 loss_name=avg_loss.name)
 
     # Specify the directory to save the parameters
     params_dirname = "fit_a_line.inference.model"
@@ -127,15 +136,22 @@ def main():
 
     for pass_id in range(num_epochs):
         for data_train in train_reader():
-            avg_loss_value, = exe.run(
-                main_program,
-                feed=feeder.feed(data_train),
-                fetch_list=[avg_loss])
-            if step % 10 == 0:  # record a train cost every 10 batches
-                print("%s, Step %d, Cost %f" %
-                      (train_prompt, step, avg_loss_value[0]))
+            s = time.time()
+            if args.with_pe:
+                avg_loss_value, = train_exe.run(
+                    feed=feeder.feed(data_train),
+                    fetch_list=[avg_loss])
+            else:
+                avg_loss_value, = exe.run(
+                    main_program,
+                    feed=feeder.feed(data_train),
+                    fetch_list=[avg_loss])
+            e = time.time()
+            if step % 100 == 0:  # record a train cost every 10 batches
+                print("%s, Step %d, Cost %f, time %f" %
+                      (train_prompt, step, avg_loss_value[0], e- s))
 
-            if step % 100 == 0:  # record a test cost every 100 batches
+            if step % 1000 == 0:  # record a test cost every 100 batches
                 test_metics = train_test(
                     executor=exe_test,
                     program=test_program,
